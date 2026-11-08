@@ -3,110 +3,235 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Schachbrett-Spiel</title>
+<title>Humans vs Robots</title>
 <style>
-  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
-         align-items: center; justify-content: center; background: #222; color: #eee;
-         font-family: sans-serif; }
-  canvas { cursor: pointer; border: 4px solid #555; max-width: 95vw; height: auto; }
-  p { margin: 12px; }
+  :root {
+    --bg: #14171c; --panel: #1d2229; --text: #e8ecf1; --muted: #8b95a3;
+    --light: #e9d9b8; --dark: #8a6b4a;
+    --human: #3b9bff; --robot: #ff5a3c;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+  h1 { margin: 0; font-size: 1.3rem; letter-spacing: .04em; }
+  header { padding: 12px 16px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  #status { padding: 6px 12px; border-radius: 999px; background: var(--panel); font-weight: 600; }
+  #status.human { box-shadow: inset 0 0 0 2px var(--human); }
+  #status.robot { box-shadow: inset 0 0 0 2px var(--robot); }
+  main { display: flex; gap: 16px; padding: 0 16px 16px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+  #board { display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); width: min(92vw, 560px, calc(100vh - 100px)); aspect-ratio: 1; border: 4px solid #333; }
+  .sq { min-width: 0; min-height: 0; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; cursor: pointer; }
+  .sq.l { background: var(--light); } .sq.d { background: var(--dark); }
+  .sq.zone-human::after, .sq.zone-robot::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+  .sq.zone-human.hint::after { background: rgba(59,155,255,.30); }
+  .sq.zone-robot.hint::after { background: rgba(255,90,60,.30); }
+  .sq.sel { outline: 3px solid #ffd33b; outline-offset: -3px; }
+  .sq:hover { filter: brightness(1.12); }
+  .sq svg { width: 88%; height: 88%; filter: drop-shadow(0 2px 2px rgba(0,0,0,.5)); pointer-events: none; }
+  .side { width: min(92vw, 340px); display: flex; flex-direction: column; gap: 12px; }
+  .panel { background: var(--panel); border-radius: 10px; padding: 12px; }
+  .panel h2 { margin: 0 0 8px; font-size: 1rem; }
+  .panel.human h2 { color: var(--human); } .panel.robot h2 { color: var(--robot); }
+  .tray { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .card { background: #11141a; border: 2px solid transparent; border-radius: 8px; padding: 4px; cursor: pointer; color: var(--text); text-align: center; font-size: .72rem; }
+  .card svg { width: 100%; height: auto; display: block; }
+  .card.active { border-color: #ffd33b; }
+  .card.used { opacity: .3; cursor: default; }
+  .card:disabled { cursor: default; }
+  #detail { min-height: 78px; font-size: .9rem; line-height: 1.35; }
+  #detail b { font-size: 1rem; }
+  .muted { color: var(--muted); }
+  button.reset { background: var(--panel); color: var(--text); border: 1px solid #333; border-radius: 8px; padding: 8px 12px; cursor: pointer; }
 </style>
 </head>
 <body>
-<h1>Schachbrett</h1>
-<canvas id="board" width="640" height="640"></canvas>
-<p id="info">Klicke auf ein Feld, um die Figur dorthin zu bewegen.</p>
+<header>
+  <h1>🧑 Humans <span class="muted">vs</span> Robots 🤖</h1>
+  <div id="status"></div>
+  <button class="reset" id="reset">Neu starten</button>
+</header>
+<main>
+  <div id="board"></div>
+  <div class="side">
+    <div class="panel human" id="panel-human"><h2>Spieler 1 – Menschen</h2><div class="tray" id="tray-human"></div></div>
+    <div class="panel robot" id="panel-robot"><h2>Spieler 2 – Roboter</h2><div class="tray" id="tray-robot"></div></div>
+    <div class="panel" id="detail"></div>
+  </div>
+</main>
+
 <script>
-const canvas = document.getElementById('board');
-const ctx = canvas.getContext('2d');
-const info = document.getElementById('info');
-const N = 8;
-const SIZE = canvas.width / N;
-const FILES = 'abcdefgh';
+/* ---------- Figuren-Design (SVG, 64x64) ---------- */
+const SKIN = '#f2c9a0', DK = '#1c2128', METAL = '#c3ccd6', METAL_D = '#7d8895', GLOW = '#ffe14a';
+const T = (c) => c; // Teamfarbe wird beim Zeichnen eingesetzt
 
-const piece = { col: 4, row: 7 };   // Startfeld e1
-let hover = null;
-let anim = null;                    // { fromX, fromY, toX, toY, start }
-const DURATION = 250;               // ms
+const TYPES = {
+  human: [
+    { id: 'soldat', name: 'Soldat', ability: 'Allrounder: Gewehr mit mittlerer Reichweite.',
+      svg: c => `<path d="M20 58V40q0-8 12-8t12 8v18z" fill="${c}"/><circle cx="32" cy="22" r="9" fill="${SKIN}"/>
+        <path d="M22 21q0-12 10-12t10 12z" fill="#4d6b3a"/><rect x="40" y="36" width="5" height="22" rx="2" fill="${DK}" transform="rotate(15 42 47)"/>` },
+    { id: 'scharf', name: 'Scharfschütze', ability: 'Große Reichweite, aber nur ein Schuss pro Runde.',
+      svg: c => `<path d="M20 58V40q0-8 12-8t12 8v18z" fill="${c}"/><path d="M21 24q0-14 11-14t11 14l-4 4H25z" fill="#3f4a3a"/>
+        <circle cx="32" cy="24" r="6" fill="${SKIN}"/><rect x="10" y="38" width="46" height="3" fill="${DK}"/>
+        <circle cx="46" cy="36" r="4" fill="none" stroke="${DK}" stroke-width="2"/>` },
+    { id: 'sani', name: 'Sanitäter', ability: 'Heilt verbündete Figuren in der Nähe.',
+      svg: c => `<path d="M20 58V40q0-8 12-8t12 8v18z" fill="#f4f6f8"/><circle cx="32" cy="22" r="9" fill="${SKIN}"/>
+        <path d="M23 18q0-9 9-9t9 9z" fill="#f4f6f8"/><path d="M30 12h4v5h-4z" fill="#e23b3b"/>
+        <path d="M29 38h6v6h6v6h-6v6h-6v-6h-6v-6h6z" fill="#e23b3b" transform="translate(0 -2) scale(1)"/>` },
+    { id: 'ingenieur', name: 'Ingenieur', ability: 'Baut Barrikaden und repariert Ausrüstung.',
+      svg: c => `<path d="M20 58V40q0-8 12-8t12 8v18z" fill="${c}"/><circle cx="32" cy="23" r="9" fill="${SKIN}"/>
+        <path d="M22 20q0-11 10-11t10 11z" fill="#ffc933"/><rect x="20" y="19" width="24" height="4" rx="2" fill="#ffc933"/>
+        <path d="M46 34l6 6-14 14-6-6z" fill="${METAL}"/><circle cx="50" cy="36" r="5" fill="none" stroke="${METAL}" stroke-width="3"/>` },
+    { id: 'schild', name: 'Schildträger', ability: 'Hohe Verteidigung, schützt Nachbarfiguren.',
+      svg: c => `<path d="M20 58V40q0-8 12-8t12 8v18z" fill="${c}"/><circle cx="32" cy="21" r="8" fill="${SKIN}"/>
+        <path d="M22 20q0-11 10-11t10 11z" fill="#6d7886"/>
+        <path d="M30 28h26v14q0 12-13 18-13-6-13-18z" fill="${METAL}" stroke="${DK}" stroke-width="2" transform="translate(-14 -2) scale(.9)"/>
+        <path d="M17 36l9 0" stroke="${c}" stroke-width="3"/>` },
+    { id: 'kommandant', name: 'Kommandant', ability: 'Gibt Verbündeten einen Bonus (Anführer).',
+      svg: c => `<path d="M16 60V42l16-10 16 10v18z" fill="#b8322f"/><path d="M22 58V42q0-8 10-8t10 8v16z" fill="${c}"/>
+        <circle cx="32" cy="23" r="9" fill="${SKIN}"/><path d="M21 17h22l-2-8H23z" fill="${DK}"/><rect x="21" y="16" width="22" height="4" fill="${c}"/>
+        <path d="M32 9l1.6 3.3 3.6.5-2.6 2.5.6 3.6-3.2-1.7-3.2 1.7.6-3.6-2.6-2.5 3.6-.5z" fill="${GLOW}" transform="translate(0 -1) scale(.9) translate(3 2)"/>` },
+  ],
+  robot: [
+    { id: 'drohne', name: 'Drohne', ability: 'Fliegt: sehr beweglich, aber zerbrechlich.',
+      svg: c => `<rect x="6" y="20" width="20" height="4" rx="2" fill="${METAL_D}"/><rect x="38" y="20" width="20" height="4" rx="2" fill="${METAL_D}"/>
+        <rect x="14" y="24" width="3" height="8" fill="${METAL_D}"/><rect x="47" y="24" width="3" height="8" fill="${METAL_D}"/>
+        <circle cx="32" cy="38" r="15" fill="${c}"/><circle cx="32" cy="38" r="9" fill="${DK}"/><circle cx="32" cy="38" r="4" fill="${GLOW}"/>` },
+    { id: 'kampf', name: 'Kampfbot', ability: 'Starker Nahkämpfer mit Kanonenarmen.',
+      svg: c => `<rect x="18" y="8" width="28" height="22" rx="4" fill="${METAL}"/><rect x="22" y="15" width="20" height="6" fill="${DK}"/>
+        <rect x="24" y="16" width="5" height="4" fill="${GLOW}"/><rect x="35" y="16" width="5" height="4" fill="${GLOW}"/>
+        <rect x="18" y="32" width="28" height="26" rx="4" fill="${c}"/><rect x="4" y="34" width="12" height="10" rx="2" fill="${METAL_D}"/>
+        <rect x="48" y="34" width="12" height="10" rx="2" fill="${METAL_D}"/><rect x="2" y="37" width="6" height="4" fill="${DK}"/><rect x="56" y="37" width="6" height="4" fill="${DK}"/>` },
+    { id: 'repbot', name: 'Reparaturbot', ability: 'Repariert Roboter in der Nähe.',
+      svg: c => `<rect x="20" y="10" width="24" height="20" rx="10" fill="${METAL}"/><circle cx="32" cy="20" r="5" fill="${DK}"/><circle cx="32" cy="20" r="2.5" fill="#46e08a"/>
+        <rect x="18" y="32" width="28" height="24" rx="5" fill="${c}"/><path d="M29 38h6v5h5v6h-5v5h-6v-5h-5v-6h5z" fill="#46e08a" transform="scale(.8) translate(8 8)"/>
+        <path d="M46 40l10-4v-6M46 40l10 4v6" stroke="${METAL_D}" stroke-width="3" fill="none"/>` },
+    { id: 'hacker', name: 'Hacker-Bot', ability: 'Stört gegnerische Figuren aus der Ferne.',
+      svg: c => `<line x1="32" y1="4" x2="32" y2="12" stroke="${METAL_D}" stroke-width="3"/><circle cx="32" cy="5" r="3" fill="#46e08a"/>
+        <path d="M24 3q8-6 16 0M20 0q12-9 24 0" stroke="#46e08a" stroke-width="1.5" fill="none" transform="translate(0 3)"/>
+        <rect x="16" y="12" width="32" height="22" rx="6" fill="${c}"/><rect x="20" y="18" width="24" height="9" rx="3" fill="${DK}"/>
+        <path d="M22 22h4l2-3 3 6 2-3h9" stroke="#46e08a" stroke-width="1.8" fill="none"/>
+        <rect x="20" y="36" width="24" height="20" rx="4" fill="${METAL_D}"/>` },
+    { id: 'titan', name: 'Titan', ability: 'Riesig und zäh, aber sehr langsam.',
+      svg: c => `<rect x="22" y="8" width="20" height="14" rx="3" fill="${METAL}"/><rect x="25" y="13" width="14" height="4" fill="${GLOW}"/>
+        <rect x="8" y="22" width="48" height="26" rx="6" fill="${c}"/><rect x="2" y="24" width="12" height="26" rx="4" fill="${METAL_D}"/>
+        <rect x="50" y="24" width="12" height="26" rx="4" fill="${METAL_D}"/><rect x="14" y="48" width="14" height="12" rx="2" fill="${METAL_D}"/>
+        <rect x="36" y="48" width="14" height="12" rx="2" fill="${METAL_D}"/><circle cx="32" cy="35" r="5" fill="${DK}"/><circle cx="32" cy="35" r="2.5" fill="${GLOW}"/>` },
+    { id: 'sniperbot', name: 'Sniper-Bot', ability: 'Laser mit großer Reichweite, wenig Panzerung.',
+      svg: c => `<path d="M32 36l-12 22M32 36l12 22M32 36v22" stroke="${METAL_D}" stroke-width="3"/>
+        <rect x="19" y="14" width="26" height="22" rx="5" fill="${c}"/><circle cx="32" cy="25" r="7" fill="${DK}"/><circle cx="32" cy="25" r="3.5" fill="#ff2a2a"/>
+        <rect x="45" y="22" width="18" height="5" rx="2" fill="${METAL}"/><path d="M63 24.5h1" stroke="#ff2a2a" stroke-width="2"/>` },
+  ],
+};
 
-function squareName(c, r) { return FILES[c] + (N - r); }
+const HUMAN_COLOR = '#3b9bff', ROBOT_COLOR = '#ff5a3c';
+const svgOf = (race, t) => `<svg viewBox="0 0 64 64" aria-label="${t.name}">${t.svg(race === 'human' ? HUMAN_COLOR : ROBOT_COLOR)}</svg>`;
+const typeOf = (race, id) => TYPES[race].find(t => t.id === id);
 
-function drawBoard() {
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      ctx.fillStyle = (r + c) % 2 === 0 ? '#f0d9b5' : '#b58863';
-      ctx.fillRect(c * SIZE, r * SIZE, SIZE, SIZE);
+/* ---------- Spielzustand ---------- */
+const N = 8, PER_PLAYER = 3;
+const ZONE = { human: [5, 6, 7], robot: [0, 1, 2] };
+let st;
+
+function init() {
+  st = {
+    pieces: [],                 // {race,typeId,r,c}
+    phase: 'setup',             // setup | play
+    turn: 'human',              // wer ist dran
+    pick: null,                 // gewählter Typ in Aufstellphase
+    selected: null,             // gewählte Figur im Spiel
+    detail: null,
+  };
+  render();
+}
+const other = r => r === 'human' ? 'robot' : 'human';
+const at = (r, c) => st.pieces.find(p => p.r === r && p.c === c);
+const count = race => st.pieces.filter(p => p.race === race).length;
+const used = (race, id) => st.pieces.some(p => p.race === race && p.typeId === id);
+
+/* ---------- Rendering ---------- */
+const boardEl = document.getElementById('board');
+const statusEl = document.getElementById('status');
+const detailEl = document.getElementById('detail');
+
+function render() {
+  // Status
+  const name = st.turn === 'human' ? 'Spieler 1 (Menschen)' : 'Spieler 2 (Roboter)';
+  statusEl.className = st.turn;
+  statusEl.textContent = st.phase === 'setup'
+    ? `Aufstellen – ${name}: wähle Figur & Feld (${count(st.turn)}/${PER_PLAYER})`
+    : `Am Zug: ${name}`;
+
+  // Brett
+  boardEl.innerHTML = '';
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const b = document.createElement('button');
+    b.className = 'sq ' + ((r + c) % 2 ? 'd' : 'l');
+    b.setAttribute('aria-label', `Feld ${'abcdefgh'[c]}${N - r}`);
+    if (ZONE.human.includes(r)) b.classList.add('zone-human');
+    if (ZONE.robot.includes(r)) b.classList.add('zone-robot');
+    if (st.phase === 'setup' && st.pick && ZONE[st.turn].includes(r) && !at(r, c)) b.classList.add('hint');
+    if (st.selected && st.selected.r === r && st.selected.c === c) b.classList.add('sel');
+    const p = at(r, c);
+    if (p) b.innerHTML = svgOf(p.race, typeOf(p.race, p.typeId));
+    b.onclick = () => onSquare(r, c);
+    boardEl.appendChild(b);
+  }
+
+  // Ablagen
+  for (const race of ['human', 'robot']) {
+    const tray = document.getElementById('tray-' + race);
+    tray.innerHTML = '';
+    for (const t of TYPES[race]) {
+      const card = document.createElement('button');
+      const isUsed = used(race, t.id);
+      const canPick = st.phase === 'setup' && st.turn === race && !isUsed;
+      card.className = 'card' + (isUsed ? ' used' : '') + (st.pick === t.id && st.turn === race ? ' active' : '');
+      card.innerHTML = svgOf(race, t) + t.name;
+      card.disabled = !canPick;
+      card.onclick = () => { st.pick = t.id; st.detail = { race, t }; render(); };
+      card.onmouseenter = () => showDetail({ race, t });
+      tray.appendChild(card);
     }
   }
-  if (hover) {
-    ctx.fillStyle = 'rgba(80, 200, 120, 0.45)';
-    ctx.fillRect(hover.col * SIZE, hover.row * SIZE, SIZE, SIZE);
+  showDetail(st.detail);
+}
+
+function showDetail(d) {
+  if (!d) { detailEl.innerHTML = '<span class="muted">Fahre über eine Figur, um ihre Fähigkeit zu sehen.</span>'; return; }
+  detailEl.innerHTML = `<b style="color:var(--${d.race})">${d.t.name}</b><br>${d.t.ability}`;
+}
+
+/* ---------- Eingabe ---------- */
+function onSquare(r, c) {
+  const p = at(r, c);
+  if (st.phase === 'setup') {
+    if (p) { st.detail = { race: p.race, t: typeOf(p.race, p.typeId) }; return render(); }
+    if (!st.pick) return;
+    if (!ZONE[st.turn].includes(r)) return;       // nur eigene Hälfte
+    st.pieces.push({ race: st.turn, typeId: st.pick, r, c });
+    st.pick = null;
+    if (count('human') === PER_PLAYER && count('robot') === PER_PLAYER) { st.phase = 'play'; st.turn = 'human'; }
+    else st.turn = other(st.turn);
+    return render();
   }
-  ctx.font = '14px sans-serif';
-  ctx.textBaseline = 'top';
-  for (let i = 0; i < N; i++) {
-    ctx.fillStyle = i % 2 === 0 ? '#b58863' : '#f0d9b5';
-    ctx.textAlign = 'left';
-    ctx.fillText(N - i, 4, i * SIZE + 4);
-    ctx.fillStyle = (i + N - 1) % 2 === 0 ? '#b58863' : '#f0d9b5';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(FILES[i], (i + 1) * SIZE - 4, N * SIZE - 4);
-    ctx.textBaseline = 'top';
+  // Spielphase
+  if (p && p.race === st.turn) {                  // eigene Figur wählen
+    st.selected = p; st.detail = { race: p.race, t: typeOf(p.race, p.typeId) };
+    return render();
+  }
+  if (st.selected && !p) {                        // freies Feld: bewegen
+    st.selected.r = r; st.selected.c = c;
+    st.selected = null;
+    st.turn = other(st.turn);
+    return render();
   }
 }
-
-function drawPiece(x, y) {
-  ctx.font = (SIZE * 0.8) + 'px serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#fff';
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 2;
-  ctx.strokeText('♞', x, y + SIZE * 0.04);
-  ctx.fillText('♞', x, y + SIZE * 0.04);
-}
-
-function frame(now) {
-  drawBoard();
-  let x = (piece.col + 0.5) * SIZE;
-  let y = (piece.row + 0.5) * SIZE;
-  if (anim) {
-    let t = Math.min(1, (now - anim.start) / DURATION);
-    t = 1 - Math.pow(1 - t, 3); // ease-out
-    x = anim.fromX + (anim.toX - anim.fromX) * t;
-    y = anim.fromY + (anim.toY - anim.fromY) * t;
-    if (t >= 1) anim = null;
-  }
-  drawPiece(x, y);
-  requestAnimationFrame(frame);
-}
-
-function squareFromEvent(e) {
-  const rect = canvas.getBoundingClientRect();
-  const scale = canvas.width / rect.width;
-  const col = Math.floor((e.clientX - rect.left) * scale / SIZE);
-  const row = Math.floor((e.clientY - rect.top) * scale / SIZE);
-  if (col < 0 || col >= N || row < 0 || row >= N) return null;
-  return { col, row };
-}
-
-canvas.addEventListener('mousemove', e => { hover = squareFromEvent(e); });
-canvas.addEventListener('mouseleave', () => { hover = null; });
-canvas.addEventListener('click', e => {
-  const sq = squareFromEvent(e);
-  if (!sq) return;
-  anim = {
-    fromX: (piece.col + 0.5) * SIZE, fromY: (piece.row + 0.5) * SIZE,
-    toX: (sq.col + 0.5) * SIZE,      toY: (sq.row + 0.5) * SIZE,
-    start: performance.now()
-  };
-  piece.col = sq.col;
-  piece.row = sq.row;
-  info.textContent = 'Figur steht auf ' + squareName(sq.col, sq.row);
+boardEl.addEventListener('mouseover', e => {
+  const btn = e.target.closest('.sq'); if (!btn) return;
+  const i = [...boardEl.children].indexOf(btn), p = at(Math.floor(i / N), i % N);
+  if (p) showDetail({ race: p.race, t: typeOf(p.race, p.typeId) });
 });
-
-requestAnimationFrame(frame);
+document.getElementById('reset').onclick = init;
+init();
 </script>
 </body>
 </html>
