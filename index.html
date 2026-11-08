@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Schachbrett-Spiel</title>
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; background: #222; color: #eee;
+         font-family: sans-serif; }
+  canvas { cursor: pointer; border: 4px solid #555; max-width: 95vw; height: auto; }
+  p { margin: 12px; }
+</style>
+</head>
+<body>
+<h1>Schachbrett</h1>
+<canvas id="board" width="640" height="640"></canvas>
+<p id="info">Klicke auf ein Feld, um die Figur dorthin zu bewegen.</p>
+<script>
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+const info = document.getElementById('info');
+const N = 8;
+const SIZE = canvas.width / N;
+const FILES = 'abcdefgh';
+
+const piece = { col: 4, row: 7 };   // Startfeld e1
+let hover = null;
+let anim = null;                    // { fromX, fromY, toX, toY, start }
+const DURATION = 250;               // ms
+
+function squareName(c, r) { return FILES[c] + (N - r); }
+
+function drawBoard() {
+  for (let r = 0; r < N; r++) {
+    for (let c = 0; c < N; c++) {
+      ctx.fillStyle = (r + c) % 2 === 0 ? '#f0d9b5' : '#b58863';
+      ctx.fillRect(c * SIZE, r * SIZE, SIZE, SIZE);
+    }
+  }
+  if (hover) {
+    ctx.fillStyle = 'rgba(80, 200, 120, 0.45)';
+    ctx.fillRect(hover.col * SIZE, hover.row * SIZE, SIZE, SIZE);
+  }
+  ctx.font = '14px sans-serif';
+  ctx.textBaseline = 'top';
+  for (let i = 0; i < N; i++) {
+    ctx.fillStyle = i % 2 === 0 ? '#b58863' : '#f0d9b5';
+    ctx.textAlign = 'left';
+    ctx.fillText(N - i, 4, i * SIZE + 4);
+    ctx.fillStyle = (i + N - 1) % 2 === 0 ? '#b58863' : '#f0d9b5';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(FILES[i], (i + 1) * SIZE - 4, N * SIZE - 4);
+    ctx.textBaseline = 'top';
+  }
+}
+
+function drawPiece(x, y) {
+  ctx.font = (SIZE * 0.8) + 'px serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 2;
+  ctx.strokeText('♞', x, y + SIZE * 0.04);
+  ctx.fillText('♞', x, y + SIZE * 0.04);
+}
+
+function frame(now) {
+  drawBoard();
+  let x = (piece.col + 0.5) * SIZE;
+  let y = (piece.row + 0.5) * SIZE;
+  if (anim) {
+    let t = Math.min(1, (now - anim.start) / DURATION);
+    t = 1 - Math.pow(1 - t, 3); // ease-out
+    x = anim.fromX + (anim.toX - anim.fromX) * t;
+    y = anim.fromY + (anim.toY - anim.fromY) * t;
+    if (t >= 1) anim = null;
+  }
+  drawPiece(x, y);
+  requestAnimationFrame(frame);
+}
+
+function squareFromEvent(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scale = canvas.width / rect.width;
+  const col = Math.floor((e.clientX - rect.left) * scale / SIZE);
+  const row = Math.floor((e.clientY - rect.top) * scale / SIZE);
+  if (col < 0 || col >= N || row < 0 || row >= N) return null;
+  return { col, row };
+}
+
+canvas.addEventListener('mousemove', e => { hover = squareFromEvent(e); });
+canvas.addEventListener('mouseleave', () => { hover = null; });
+canvas.addEventListener('click', e => {
+  const sq = squareFromEvent(e);
+  if (!sq) return;
+  anim = {
+    fromX: (piece.col + 0.5) * SIZE, fromY: (piece.row + 0.5) * SIZE,
+    toX: (sq.col + 0.5) * SIZE,      toY: (sq.row + 0.5) * SIZE,
+    start: performance.now()
+  };
+  piece.col = sq.col;
+  piece.row = sq.row;
+  info.textContent = 'Figur steht auf ' + squareName(sq.col, sq.row);
+});
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
